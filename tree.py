@@ -33,7 +33,7 @@ from pathlib import Path
 # ThreadingHTTPServer 每連線一執行緒(單執行緒會被瀏覽器 preconnect 楔死),檔案讀寫加全域鎖
 IO_LOCK = threading.Lock()
 
-VERSION = "v28"
+VERSION = "v29"
 HERE = Path(__file__).resolve().parent
 PROJECTS_DIR = HERE / "projects"   # 獨立版:專案樹放 repo 內 projects/;可用 --projects-dir 改
 TREE_FILENAME = "_效果樹.md"

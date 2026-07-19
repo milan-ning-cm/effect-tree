@@ -115,7 +115,7 @@
           visibility:hidden; opacity:0; transition:opacity .12s, visibility 0s linear .25s}
   .fowrap:hover .addcol{visibility:visible; opacity:1; transition-delay:0s}
   body.dragging .addcol{visibility:hidden !important; opacity:0 !important}
-  .addbtn{width:30px; height:24px; line-height:22px; text-align:center; font-size:11px; font-weight:700;
+  .addbtn{min-width:30px; width:auto; padding:0 7px; height:24px; line-height:22px; text-align:center; font-size:11px; font-weight:700;
           border-radius:8px; background:#fff; cursor:pointer; user-select:none;
           box-shadow:0 1px 3px rgba(15,23,42,.15)}
   .addbtn.fx{color:var(--fx); border:1.5px solid var(--fx)}
@@ -426,9 +426,9 @@ function render(){
       <div xmlns="http://www.w3.org/1999/xhtml" class="fowrap">
         <div class="${cls}" data-id="${nd.id}" style="width:${nd._w}px; height:${nd._h}px">${nodeInner(nd)}</div>
         <div class="addcol">
-          <span class="addbtn cx" data-add="Context" data-parent="${nd.id}" title="加子Context(背景脈絡)">＋境</span>
-          <span class="addbtn ex" data-add="執行" data-parent="${nd.id}" title="加子執行">＋執</span>
-          <span class="addbtn fx" data-add="效果" data-parent="${nd.id}" title="加子效果">＋效</span>
+          <span class="addbtn cx" data-add="Context" data-parent="${nd.id}" title="加子Context(背景脈絡)">＋背景</span>
+          <span class="addbtn ex" data-add="執行" data-parent="${nd.id}" title="加子執行">＋執行</span>
+          <span class="addbtn fx" data-add="效果" data-parent="${nd.id}" title="加子效果">＋效果</span>
         </div></div>
       </foreignObject>`;
   });
