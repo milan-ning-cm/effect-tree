@@ -1,0 +1,1186 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>效果樹</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%B3%3C/text%3E%3C/svg%3E">
+<style>
+  :root{
+    --fx:#2563eb; --fx-bg:#eff6ff;      /* 效果 */
+    --ex:#d97706; --ex-bg:#fffbeb;      /* 執行 */
+    --cx:#0d9488; --cx-bg:#f0fdfa;      /* Context 背景脈絡 */
+    --line:#cbd5e1; --ink:#1e293b; --muted:#64748b;
+  }
+  *{box-sizing:border-box; margin:0}
+  html,body{height:100%; font-family:"Segoe UI","Microsoft JhengHei",system-ui,sans-serif; color:var(--ink)}
+  body{display:flex; flex-direction:column; overflow:hidden; background:#f8fafc}
+
+  header{display:flex; align-items:center; gap:10px; padding:8px 14px; background:#fff;
+         border-bottom:1px solid #e2e8f0; flex:none; z-index:5}
+  header h1{font-size:15px; font-weight:600}
+  header select{padding:4px 8px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; max-width:260px}
+  header button{padding:4px 10px; border:1px solid #cbd5e1; border-radius:6px; background:#fff;
+                font-size:13px; cursor:pointer}
+  header button:hover{background:#f1f5f9}
+  #saveState{font-size:12px; color:var(--muted); margin-left:auto}
+  #legend{font-size:12px; color:var(--muted); display:flex; gap:10px; align-items:center}
+  .dotFx,.dotEx,.dotCx{display:inline-block; width:9px; height:9px; border-radius:3px; margin-right:3px; vertical-align:-1px}
+  .dotFx{background:var(--fx)} .dotEx{background:var(--ex)} .dotCx{background:var(--cx)}
+
+  #errBanner{display:none; background:#fef2f2; color:#b91c1c; border-bottom:1px solid #fecaca;
+             padding:6px 14px; font-size:13px; white-space:pre-wrap}
+
+  #wrap{flex:1; position:relative; overflow:hidden; cursor:grab}
+  #wrap.panning{cursor:grabbing}
+  svg{width:100%; height:100%; display:block}
+
+  .node{width:100%; height:100%; border:1px solid #d8dee9; border-radius:10px; background:#fff;
+        border-left:4px solid var(--fx); padding:7px 10px 8px; cursor:pointer; overflow:hidden;
+        box-shadow:0 1px 2px rgba(15,23,42,.06); font-size:13px; line-height:1.45; user-select:none;
+        position:relative}
+  .grip{position:absolute; right:0; top:0; bottom:0; width:9px; cursor:ew-resize}
+  .grip:hover{background:linear-gradient(to right, transparent, #c7d2fe)}
+  .node.ex{border-left-color:var(--ex)}
+  .node.cx{border-left-color:var(--cx); background:var(--cx-bg)}
+  .cx .nid{color:var(--cx)}
+  .node.done{background:#f6fdf8}
+  .node.paused{opacity:.55}
+  .node.sel{outline:2px solid #6366f1; outline-offset:1px}
+  .node.msel{outline:2.5px solid #6366f1; outline-offset:2px; box-shadow:0 0 0 5px rgba(99,102,241,.14)}
+  #marquee{position:absolute; display:none; border:1.5px dashed #6366f1;
+           background:rgba(99,102,241,.08); pointer-events:none; z-index:40}
+  #wrap.marq{cursor:crosshair}
+  #mselBar{position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:30;
+           display:none; align-items:center; gap:8px; padding:6px 12px; background:#fff;
+           border:1px solid #c7d2fe; border-radius:99px; box-shadow:0 4px 16px rgba(15,23,42,.15);
+           font-size:12.5px}
+  #mselBar select{padding:3px 6px; border:1px solid #cbd5e1; border-radius:6px; font-size:12px}
+  #mselBar b{color:#4338ca}
+  #mselBar .mclear{cursor:pointer; color:#94a3b8; font-size:14px; padding:0 2px}
+  #mselBar .mclear:hover{color:#dc2626}
+  /* 拖放落點提示一律畫在 SVG #dropfx 層——畫在節點 div 上會被 foreignObject 裁掉(實踩:看不見) */
+  #dropBadge{position:fixed; pointer-events:none; z-index:60; display:none; max-width:280px;
+             padding:4px 10px; border-radius:8px; font-size:12px; font-weight:600; color:#fff;
+             background:#16a34a; box-shadow:0 2px 8px rgba(15,23,42,.25); white-space:nowrap;
+             overflow:hidden; text-overflow:ellipsis}
+  #dropBadge.cancel{background:#94a3b8}
+  .node.dragsrc{opacity:.35}
+  .nhead{display:flex; align-items:center; gap:6px; margin-bottom:2px}
+  .nid{font-size:11px; font-weight:700; color:var(--fx)}
+  .ex .nid{color:var(--ex)}
+  .pill{font-size:10.5px; padding:1px 7px; border-radius:99px; margin-left:auto; cursor:pointer; white-space:nowrap}
+  .pill:hover{filter:brightness(.93)}
+  .st-待動{background:#e2e8f0; color:#475569}
+  .st-進行中{background:#dbeafe; color:#1d4ed8}
+  .st-待驗收{background:#fef3c7; color:#b45309}
+  .st-完成{background:#dcfce7; color:#15803d}
+  .st-擱置{background:#f1f5f9; color:#94a3b8}
+  .ntext{word-break:break-word}
+  .node a{color:inherit; text-decoration:none; word-break:break-all; cursor:pointer}
+  .node a:hover{text-decoration:underline}
+  .nnote{margin-top:3px; font-size:11px; color:var(--muted); word-break:break-word}
+  .nnote b{font-weight:600}
+  .nimg{width:100%; height:110px; object-fit:cover; object-position:top; border-radius:6px;
+        margin-top:6px; border:1px solid #e2e8f0; display:block;
+        -webkit-user-drag:none; user-select:none}  /* 原生 image drag 會劫走 pointer 事件,拖曳凍結(實踩) */
+  #panel{overscroll-behavior:contain}
+  .pimg{position:relative; margin-top:6px}
+  .pimg img{max-width:100%; border-radius:8px; border:1px solid #e2e8f0; display:block; cursor:zoom-in}
+  .pimg-del{position:absolute; top:6px; right:6px; width:22px; height:22px; line-height:20px;
+            text-align:center; border-radius:99px; background:rgba(15,23,42,.55); color:#fff;
+            font-size:12px; cursor:pointer; user-select:none}
+  .pimg-del:hover{background:#dc2626}
+  #lightbox{display:none; position:fixed; inset:0; background:rgba(15,23,42,.85); z-index:100;
+            cursor:zoom-out; align-items:center; justify-content:center; overflow:hidden}
+  #lightbox.open{display:flex}
+  #lightbox img{max-width:93vw; max-height:93vh; border-radius:10px; box-shadow:0 12px 48px rgba(0,0,0,.5);
+            cursor:grab; -webkit-user-drag:none; user-select:none}
+  #lightbox img:active{cursor:grabbing}
+  #lightbox .lbhint{position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
+            color:#cbd5e1; font-size:12px}
+  .lbclose{position:fixed; top:14px; right:18px; z-index:101; width:42px; height:42px; line-height:40px;
+           text-align:center; font-size:24px; color:#e2e8f0; cursor:pointer; border-radius:99px;
+           background:rgba(30,41,59,.65); user-select:none}
+  .lbclose:hover{background:rgba(71,85,105,.85)}
+  .toggle{flex:none; min-width:17px; height:17px; line-height:15px; padding:0 4px; text-align:center;
+          border:1px solid #cbd5e1; border-radius:99px; font-size:11px; color:#475569;
+          background:#fff; cursor:pointer; user-select:none}
+  .toggle:hover{background:#eef2f7}
+  svg foreignObject{overflow:visible}  /* 三顆hover鈕比矮卡高,FO預設裁切會截掉;卡片自身仍有overflow:hidden */
+  .fowrap{display:flex; align-items:center; gap:0; height:100%; pointer-events:none}
+  .fowrap .node, .fowrap .addcol{pointer-events:auto}
+  .fowrap>.node{flex:none}
+  /* 卡片→按鈕之間的縫=addcol 的 padding(可 hover),hover 鏈不斷;離開後延遲 .25s 淡出留緩衝 */
+  .addcol{display:flex; flex-direction:column; gap:5px; flex:none; padding-left:6px;
+          visibility:hidden; opacity:0; transition:opacity .12s, visibility 0s linear .25s}
+  .fowrap:hover .addcol{visibility:visible; opacity:1; transition-delay:0s}
+  body.dragging .addcol{visibility:hidden !important; opacity:0 !important}
+  .addbtn{width:30px; height:24px; line-height:22px; text-align:center; font-size:11px; font-weight:700;
+          border-radius:8px; background:#fff; cursor:pointer; user-select:none;
+          box-shadow:0 1px 3px rgba(15,23,42,.15)}
+  .addbtn.fx{color:var(--fx); border:1.5px solid var(--fx)}
+  .addbtn.ex{color:var(--ex); border:1.5px solid var(--ex)}
+  .addbtn.cx{color:var(--cx); border:1.5px solid var(--cx)}
+  .addbtn:hover{filter:brightness(.93)}
+  #measure{position:absolute; left:-9999px; top:0; height:auto !important; visibility:hidden; pointer-events:none}
+  .next{font-size:10px; font-weight:700; color:#7c3aed; background:#f3e8ff;
+        padding:1px 6px; border-radius:99px; white-space:nowrap}
+  .node.frontier{border-color:#c4b5fd; box-shadow:0 0 0 1px #ede9fe, 0 1px 3px rgba(124,58,237,.15)}
+
+  #ghost{position:fixed; pointer-events:none; z-index:50; width:240px; display:none; opacity:.9;
+         transform:rotate(1.5deg)}
+  /* 拖曳幽靈=摺疊小卡:只示意「拿著哪一張」,不擋畫面(整卡原樣拿起遇長內容會蓋住落點,實踩) */
+  .gnode{border:1px solid #d8dee9; border-left:4px solid var(--fx); border-radius:8px; background:#fff;
+         padding:5px 10px; font-size:12px; box-shadow:0 8px 22px rgba(15,23,42,.28);
+         white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .gnode.ex{border-left-color:var(--ex)}
+  .gnode.cx{border-left-color:var(--cx)}
+  .gnode b{margin-right:4px}
+  /* 摺疊殘影條:子樹收起後留一條窄標題,不會完全消失 */
+  .stub{height:100%; border:1px dashed #c7d2fe; border-radius:8px; background:#f8fafc; color:#64748b;
+        font-size:11px; line-height:26px; padding:1px 9px; white-space:nowrap; overflow:hidden;
+        text-overflow:ellipsis; cursor:pointer; user-select:none}
+  .stub:hover{background:#eef2ff; color:#4338ca}
+  .fold{flex:none; min-width:17px; height:17px; line-height:15px; text-align:center;
+        border:1px solid #cbd5e1; border-radius:99px; font-size:10px; color:#475569;
+        background:#fff; cursor:pointer; user-select:none}
+  .fold:hover{background:#eef2f7}
+  .ntext.oneline{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#475569}
+
+  #panel{position:absolute; top:12px; right:12px; width:300px; background:#fff; border:1px solid #d8dee9;
+         border-radius:12px; box-shadow:0 8px 30px rgba(15,23,42,.14); padding:0 14px 14px; display:none; z-index:20;
+         resize:both; overflow:auto; min-width:280px; min-height:220px; max-width:72vw; max-height:86vh}
+  /* 標題=拖曳把手,釘住不隨面板內容捲走 */
+  #panel h2{font-size:13px; display:flex; align-items:center; gap:8px; margin:0 -14px 10px; padding:12px 14px 8px;
+            cursor:move; user-select:none; position:sticky; top:0; background:#fff; z-index:2;
+            border-bottom:1px solid #eef2f7}
+  #panel h2 .close{margin-left:auto; cursor:pointer; border:none; background:none; font-size:16px; color:var(--muted)}
+  #panel label{display:block; font-size:11.5px; color:var(--muted); margin:8px 0 3px}
+  #panel textarea,#panel input,#panel select{width:100%; padding:6px 8px; border:1px solid #cbd5e1;
+         border-radius:6px; font-size:13px; font-family:inherit}
+  #panel textarea{resize:vertical; min-height:56px}
+  .prow{display:flex; gap:8px}
+  .prow>div{flex:1}
+  #panel .btns{display:flex; flex-wrap:wrap; gap:6px; margin-top:12px}
+  #panel .btns button{padding:5px 9px; border:1px solid #cbd5e1; border-radius:6px; background:#fff;
+                      font-size:12px; cursor:pointer}
+  #panel .btns button:hover{background:#f1f5f9}
+  #panel .btns .primary{background:#2563eb; border-color:#2563eb; color:#fff}
+  #panel .btns .primary:hover{background:#1d4ed8}
+  #panel .btns .danger{color:#dc2626; border-color:#fca5a5}
+  #hint{font-size:11px; color:#94a3b8; padding:6px 14px; background:#fff; border-top:1px solid #eef2f7; flex:none}
+</style>
+<script>
+"use strict";
+const NODE_W = 240, HGAP = 76, VGAP = 14, PAD_X = 208, UNDO_MAX = 50;
+const STATUSES = ["待動","進行中","待驗收","完成","擱置"];
+let S = {file:null, token:null, version:null, forest:[], errors:[], selId:null,
+         busy:false, panelOpen:false, drag:null, view:{x:60, y:40, k:1},
+         undo:[], redo:[], lastSaved:null, collapsed:new Set(), folded:new Set(), widths:{},
+         msel:new Set()};   // 框選多選集合
+let CLIP = null;            // 節點剪貼簿 {nodes:[乾淨子樹], srcFile}
+let MARQ = {mode:false};    // 雙擊空白=進入框選模式
+function nodeW(nd){ return S.widths[nd.id] || NODE_W; }
+const TYPE_META = {"效果":{prefix:"E", key:"判準", cls:""}, "執行":{prefix:"X", key:"產出", cls:"ex"},
+                   "Context":{prefix:"C", key:"來源", cls:"cx"}};  // Context=背景脈絡,不參與前沿  // 每卡自訂寬(視圖狀態,localStorage)
+const H_CACHE = new Map();  // 節點高度量測快取(key=型別+內容+備註)
+
+/* ---------- data helpers ---------- */
+function walk(nodes, fn, parent){ for(const nd of nodes){ fn(nd, parent); walk(nd.children||[], fn, nd); } }
+function findNode(id){ let hit=null; walk(S.forest, n=>{ if(n.id===id) hit=n; }); return hit; }
+function findParent(id){ let hit=null; walk(S.forest,(n,p)=>{ if(n.id===id) hit=p||null; }); return hit; }
+function siblingsOf(id){ const p=findParent(id); return p ? p.children : S.forest; }
+function subtreeIds(nd){ const s=new Set(); walk([nd], n=>s.add(n.id)); return s; }
+function nextId(prefix){ let mx=0; walk(S.forest,n=>{ if(n.id[0]===prefix) mx=Math.max(mx, parseInt(n.id.slice(1),10)||0); }); return prefix+(mx+1); }
+function cleanForest(nodes){ return nodes.map(n=>({id:n.id, type:n.type, status:n.status,
+  text:n.text, note:n.note||"", note_key:n.note_key||"", img:n.img||"", children:cleanForest(n.children||[])})); }
+function assetUrl(name){ return "/api/asset?f="+encodeURIComponent(S.file)+"&name="+encodeURIComponent(name); }
+/* 多圖:img 欄=逗號分隔檔名清單(舊單圖=一項清單,相容) */
+function imgList(nd){ return (nd.img||"").split(",").map(s=>s.trim()).filter(Boolean); }
+function setImgs(nd, arr){ nd.img = arr.join(", "); }
+
+/* ---------- collapse(視圖狀態,存 localStorage 不進 md) ---------- */
+function isCollapsed(id){ return S.collapsed.has(id); }
+function kidsOf(nd){ return isCollapsed(nd.id) ? [] : (nd.children||[]); }
+function countDesc(nd){ let n=0; walk(nd.children||[], ()=>n++); return n; }
+function toggleCollapse(id){
+  if(S.collapsed.has(id)) S.collapsed.delete(id); else S.collapsed.add(id);
+  localStorage.setItem("efftree.collapsed."+S.file, JSON.stringify([...S.collapsed]));
+  render();
+}
+/* 每卡獨立「內容摺疊」:長內容卡收成一行標題條;與子樹摺疊互相獨立 */
+function isFolded(id){ return S.folded.has(id); }
+function foldable(nd){ return !!(nd.note || nd.img || String(nd.text).length > 40 || /<br/i.test(nd.text)); }
+function toggleFold(id){
+  if(S.folded.has(id)) S.folded.delete(id); else S.folded.add(id);
+  localStorage.setItem("efftree.folded."+S.file, JSON.stringify([...S.folded]));
+  render();
+}
+
+/* ---------- 多選/剪貼簿 ---------- */
+function mselRoots(){   // 選取根=被選且祖先皆未被選(避免子樹重複操作)
+  const out = [];
+  (function rec(nodes, anc){ for(const nd of nodes){
+    if(S.msel.has(nd.id) && !anc) out.push(nd);
+    rec(nd.children||[], anc || S.msel.has(nd.id));
+  }})(S.forest, false);
+  return out;
+}
+function cloneForest(roots){  // 深拷貝+全樹發新 ID(貼上/Ctrl拖複製用)
+  const counters = {E:0, X:0, C:0};
+  walk(S.forest, n=>{ const p = n.id[0], v = parseInt(n.id.slice(1),10)||0;
+    if(counters[p] !== undefined) counters[p] = Math.max(counters[p], v); });
+  const cl = nodes => nodes.map(n => ({id: n.id[0]+(++counters[n.id[0]]), type:n.type,
+    status:n.status, text:n.text, note:n.note||"", note_key:n.note_key||"",
+    img:n.img||"", children: cl(n.children||[])}));
+  return cl(cleanForest(roots));
+}
+function removeNodes(roots){ for(const nd of roots){ const s = siblingsOf(nd.id);
+  const i = s.indexOf(nd); if(i >= 0) s.splice(i, 1); } }
+function countAll(roots){ let n = 0; walk(roots, ()=>n++); return n; }
+function clearMsel(){ if(S.msel.size){ S.msel.clear(); render(); } }
+function copyMsel(cut){
+  const roots = mselRoots();
+  if(!roots.length) return;
+  CLIP = {nodes: cleanForest(roots), srcFile: S.file};
+  if(cut){ removeNodes(roots); S.msel.clear(); save(); }
+  setState((cut ? "已剪下 " : "已複製 ") + roots.length + " 個節點(Ctrl+V 貼上)");
+}
+async function pasteClip(){
+  if(!CLIP || !CLIP.nodes.length) return false;
+  let items = cloneForest(CLIP.nodes);
+  if(CLIP.srcFile !== S.file){  // 跨樹貼上:圖檔連同搬家(server 複製到目標專案 assets)
+    const names = [];
+    walk(items, n=>{ for(const one of String(n.img||"").split(","))
+      if(one.trim()) names.push(one.trim()); });
+    if(names.length){
+      let ok = false;
+      try{
+        const r = await fetch("/api/copyassets", {method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({src: CLIP.srcFile, dst: S.file, names})});
+        ok = r.ok;
+      }catch(e){}
+      if(!ok) walk(items, n=>{ n.img = ""; });  // 圖搬不動才剝除引用,節點照貼
+    }
+  }
+  const host = S.selId && findNode(S.selId);
+  if(host) host.children.push(...items); else S.forest.push(...items);
+  S.msel = new Set(items.map(i=>i.id));
+  save().then(ok=>{ if(ok && items[0]) focusNode(items[0].id); });
+  return true;
+}
+function updateMselBar(){
+  const bar = document.getElementById("mselBar");
+  if(!bar) return;
+  if(S.msel.size){
+    bar.style.display = "flex";
+    document.getElementById("mselCount").textContent = "已選 " + S.msel.size + " 張";
+    document.getElementById("mselType").value = "";
+    document.getElementById("mselStatus").value = "";
+  } else bar.style.display = "none";
+}
+function batchStatus(st){
+  if(!st || !S.msel.size) return;
+  for(const id of [...S.msel]){ const n = findNode(id); if(n) n.status = st; }
+  save();
+}
+function batchType(tp){
+  if(!tp || !S.msel.size) return;
+  const counters = {E:0, X:0, C:0};
+  walk(S.forest, n=>{ const pfx = n.id[0], v = parseInt(n.id.slice(1),10)||0;
+    if(counters[pfx] !== undefined) counters[pfx] = Math.max(counters[pfx], v); });
+  const newSel = new Set();
+  for(const id of [...S.msel]){
+    const n = findNode(id);
+    if(!n) continue;
+    if(n.type !== tp){ const pfx = TYPE_META[tp].prefix; n.type = tp; n.id = pfx + (++counters[pfx]); }
+    newSel.add(n.id);
+  }
+  S.msel = newSel;
+  save();
+}
+function deleteMsel(){
+  const roots = mselRoots();
+  if(!roots.length) return;
+  if(!confirm(`刪除選取的 ${roots.length} 個節點(共 ${countAll(roots)} 張卡,含子樹)?`)) return;
+  removeNodes(roots);
+  S.msel.clear();
+  closePanel(); save();
+}
+
+/* ---------- 節點 markup(渲染與量測共用)與真實高度量測 ---------- */
+function brToHtml(s){ return esc(s).replace(/&lt;br&gt;/gi, "<br>"); }
+function linkify(html){  // 在「已跳脫」的 HTML 上把 http(s) URL 轉可點連結(esc 先行故屬性安全)
+  return html.replace(/(https?:\/\/[^\s<>"']+)/g,
+    '<a href="$1" target="_blank" rel="noopener">$1</a>');
+}
+function nodeInner(nd){
+  const noteKey = nd.note_key || (TYPE_META[nd.type]||{}).key || "備註";
+  const kidsN = (nd.children||[]).length;
+  const folded = isFolded(nd.id);
+  const toggle = kidsN ? `<span class="toggle" data-toggle="${nd.id}" title="折疊/展開子樹">${
+    isCollapsed(nd.id) ? "＋"+countDesc(nd) : "−"}</span>` : "";
+  const fold = foldable(nd) ? `<span class="fold" data-fold="${nd.id}" title="${
+    folded ? "展開此卡內容" : "把此卡收成一行"}">${folded ? "▸" : "▾"}</span>` : "";
+  const body = folded
+    ? `<div class="ntext oneline">${esc(String(nd.text).replace(/<br\s*\/?>/gi, " "))}</div>`
+    : `<div class="ntext">${linkify(brToHtml(nd.text))}</div>
+    ${nd.note ? `<div class="nnote"><b>${noteKey}:</b> ${linkify(esc(nd.note))}</div>` : ""}
+    ${imgList(nd).map(n=>`<img class="nimg" src="${assetUrl(n)}">`).join("")}`;
+  return `<div class="nhead"><span class="nid">${nd.id} · ${nd.type}</span>
+      ${nd._frontier ? `<span class="next">▶下一步</span>` : ""}
+      <span class="pill st-${nd.status}" data-pill="${nd.id}">${nd.status}</span>${fold}${toggle}</div>
+    ${body}
+    <div class="grip" data-grip="${nd.id}" title="拖曳調整卡片寬度"></div>`;
+}
+function nodeH(nd){
+  // 真實渲染量測:同 CSS 同寬的隱藏箱,offsetHeight 即精準高度——估算法會把長路徑/中英混排的換行估錯,實際切字(踩過)
+  const key = nd.type+"|"+nodeW(nd)+"|"+isCollapsed(nd.id)+"|"+isFolded(nd.id)+"|"+((nd.children||[]).length?1:0)+"|"+nd.text+"|"+(nd.note||"")+"|"+(nd.note_key||"")+"|"+(nd.img||"");
+  if(H_CACHE.has(key)) return H_CACHE.get(key);
+  const box = document.getElementById("measure");
+  box.style.width = nodeW(nd) + "px";
+  box.innerHTML = nodeInner(nd);
+  const h = box.offsetHeight;
+  box.innerHTML = "";  // 用完即清,殘留 markup 會被 data-* 選擇器誤抓
+  H_CACHE.set(key, h);
+  return h;
+}
+/* ---------- layout ---------- */
+const STUB_W = 200, STUB_H = 30;
+function computeSpan(nd){
+  nd._h = nodeH(nd);
+  nd._stub = (isCollapsed(nd.id) && (nd.children||[]).length) ? STUB_H : 0;
+  const kids = kidsOf(nd);
+  if(!kids.length) return nd._span = Math.max(nd._h, nd._stub);
+  let s = 0; kids.forEach((k,i)=>{ s += computeSpan(k) + (i?VGAP:0); });
+  return nd._span = Math.max(nd._h, s);
+}
+let COL_X = [0];
+function assignPos(nd, depth, y0){
+  nd._x = COL_X[depth] || depth*(NODE_W+HGAP);
+  nd._w = nodeW(nd);
+  nd._y = y0 + (nd._span - nd._h)/2;
+  if(nd._stub){  // 摺疊殘影條落在子欄位置
+    nd._sx = COL_X[depth+1] || (nd._x + nd._w + HGAP);
+    nd._sy = y0 + (nd._span - STUB_H)/2;
+  }
+  const kids = kidsOf(nd);
+  const kidsSpan = kids.reduce((a,k,i)=>a+k._span+(i?VGAP:0), 0);
+  let y = y0 + (nd._span - kidsSpan)/2;
+  for(const k of kids){ assignPos(k, depth+1, y); y += k._span + VGAP; }
+}
+function layout(){
+  // 欄位 x=每層「最寬卡片」對齊(卡片可各自調寬,欄距不重疊)
+  const maxW = [];
+  (function scan(nodes, d){ for(const nd of nodes){
+    maxW[d] = Math.max(maxW[d]||NODE_W, nodeW(nd)); scan(kidsOf(nd), d+1); } })(S.forest, 0);
+  COL_X = [0];
+  for(let i=0; i<maxW.length; i++) COL_X[i+1] = COL_X[i] + maxW[i] + HGAP;
+  let y = 0;
+  for(const r of S.forest){ computeSpan(r); assignPos(r, 0, y); y += r._span + 44; }
+}
+
+/* ---------- render ---------- */
+function esc(s){ return String(s||"").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function markFrontier(nodes, blockedAnc){
+  // ▶下一步=推導不儲存:待動的執行節點、子項全完成(或無)、且沒有已完成/擱置的祖先
+  for(const nd of nodes){
+    nd._frontier = nd.type==="執行" && nd.status==="待動" && !blockedAnc &&
+                   (nd.children||[]).every(c=>c.type==="Context" || c.status==="完成");
+    markFrontier(nd.children||[], blockedAnc || nd.status==="完成" || nd.status==="擱置");
+  }
+}
+function drawWalk(nodes, parent, fn){  // 只走「可見」節點(折疊的子樹跳過)
+  for(const nd of nodes){ fn(nd, parent); drawWalk(kidsOf(nd), nd, fn); }
+}
+function render(){
+  markFrontier(S.forest, false);   // 前沿判定看全樹(含折疊),先算
+  layout();
+  const g = document.getElementById("viewport");
+  let edges="", nodes="";
+  drawWalk(S.forest, null, (nd, p)=>{
+    if(p){
+      const x1=nd._x, y1=nd._y+nd._h/2, x2=p._x+p._w, y2=p._y+p._h/2;
+      const mx=(x1+x2)/2;
+      edges += `<path d="M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2+8} ${y2}"
+                 fill="none" stroke="var(--line)" stroke-width="1.6" marker-end="url(#arrow)"/>`;
+    }
+    const cls = ["node", (TYPE_META[nd.type]||{}).cls||"", nd.status==="完成"?"done":"",
+                 nd.status==="擱置"?"paused":"", nd._frontier?"frontier":"",
+                 nd.id===S.selId?"sel":"", S.msel.has(nd.id)?"msel":""].join(" ");
+    if(nd._stub){  // 摺疊殘影條:虛線連到父卡,點擊展開
+      const sy = nd._sy + STUB_H/2, x2 = nd._x + nd._w, mx = (nd._sx + x2)/2;
+      edges += `<path d="M ${nd._sx} ${sy} C ${mx} ${sy}, ${mx} ${nd._y+nd._h/2}, ${x2+8} ${nd._y+nd._h/2}"
+                 fill="none" stroke="var(--line)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#arrow)"/>`;
+      const kids = nd.children||[];
+      const titles = kids.map(k=>String(k.text).replace(/<br\s*\/?>/gi," ")).join("・");
+      nodes += `<foreignObject x="${nd._sx}" y="${nd._sy}" width="${STUB_W}" height="${STUB_H}">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="stub" data-toggle="${nd.id}"
+             title="已摺疊 ${kids.length} 項,點擊展開">▸${kids.length}項 ${esc(titles.slice(0,24))}${titles.length>24?"…":""}</div>
+        </foreignObject>`;
+    }
+    // FO 加寬 40px 留 hover 快速新增鈕的位置(提示元素放 FO 外會被裁,實踩)
+    const foH = Math.max(nd._h, 92);  // 三顆hover鈕(~82px)要放得下,矮卡FO加高垂直置中
+    nodes += `<foreignObject x="${nd._x}" y="${nd._y - (foH - nd._h)/2}" width="${nd._w+40}" height="${foH}">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="fowrap">
+        <div class="${cls}" data-id="${nd.id}" style="width:${nd._w}px; height:${nd._h}px">${nodeInner(nd)}</div>
+        <div class="addcol">
+          <span class="addbtn cx" data-add="Context" data-parent="${nd.id}" title="加子Context(背景脈絡)">＋境</span>
+          <span class="addbtn ex" data-add="執行" data-parent="${nd.id}" title="加子執行">＋執</span>
+          <span class="addbtn fx" data-add="效果" data-parent="${nd.id}" title="加子效果">＋效</span>
+        </div></div>
+      </foreignObject>`;
+  });
+  g.innerHTML = edges + nodes + '<g id="dropfx"></g>';
+  updateMselBar();
+  updateMselBar();
+  applyView();
+  const eb = document.getElementById("errBanner");
+  if(S.errors.length){
+    eb.style.display="block";
+    eb.textContent = "⚠ md 內有無法解析的行,已鎖定編輯(請先修檔):\n" +
+      S.errors.map(e=>`  行${e.line}: ${e.text}`).join("\n");
+  } else eb.style.display="none";
+}
+function applyView(){
+  document.getElementById("viewport").setAttribute("transform",
+    `translate(${S.view.x},${S.view.y}) scale(${S.view.k})`);
+}
+function fitView(){
+  let maxX=0, maxY=0;
+  drawWalk(S.forest, null, nd=>{ maxX=Math.max(maxX, nd._x+(nd._w||NODE_W)); maxY=Math.max(maxY, nd._y+nd._h); });
+  if(!maxX) return;
+  const w = document.getElementById("wrap").clientWidth, h = document.getElementById("wrap").clientHeight;
+  const k = Math.min(1, (w-80)/maxX, (h-80)/maxY);
+  S.view = {x:40, y:40, k:Math.max(k, .25)};
+  applyView();
+}
+
+/* ---------- load / save ---------- */
+async function loadProjects(){
+  const r = await fetch("/api/projects"); const j = await r.json();
+  S.version = j.version;
+  let cands = [];
+  try{ cands = (await (await fetch("/api/candidates")).json()).candidates || []; }catch(e){}
+  const sel = document.getElementById("projSel");
+  sel.innerHTML = j.projects.map(p=>`<option value="${esc(p.path)}">${esc(p.name)}</option>`).join("")
+    + `<optgroup label="────────">`
+    + cands.map(n=>`<option value="new:${esc(n)}">＋ ${esc(n)}(已有資料夾)</option>`).join("")
+    + `<option value="new:__custom__">＋ 新增專案樹…</option></optgroup>`;
+  const last = localStorage.getItem("efftree.last");
+  if(last && j.projects.some(p=>p.path===last)) sel.value = last;
+  return sel.value && !sel.value.startsWith("new:") ? sel.value : (j.projects[0]&&j.projects[0].path);
+}
+async function createTree(name){
+  const r = await fetch("/api/create", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({project:name})});
+  const j = await r.json();
+  if(!r.ok){ alert("建立失敗: "+(j.error||r.status)); return null; }
+  return j.path;
+}
+async function loadDoc(path){
+  const r = await fetch("/api/doc?f="+encodeURIComponent(path||""));
+  if(!r.ok){ setState("讀取失敗"); return; }
+  const j = await r.json();
+  S.file=j.file; S.token=j.token; S.forest=j.forest; S.errors=j.errors||[];
+  // 外部(agent/另一視窗)改檔後,舊快照回復會蓋掉別人的變更→歷史一律歸零
+  S.lastSaved = cleanForest(S.forest); S.undo = []; S.redo = [];
+  try{ S.collapsed = new Set(JSON.parse(localStorage.getItem("efftree.collapsed."+j.file)||"[]")); }
+  catch(e){ S.collapsed = new Set(); }
+  try{ S.folded = new Set(JSON.parse(localStorage.getItem("efftree.folded."+j.file)||"[]")); }
+  catch(e){ S.folded = new Set(); }
+  try{ S.widths = JSON.parse(localStorage.getItem("efftree.widths."+j.file)||"{}") || {}; }
+  catch(e){ S.widths = {}; }
+  localStorage.setItem("efftree.last", j.file);
+  S.msel.clear();
+  render(); setState("已同步");
+}
+function setState(t){ document.getElementById("saveState").textContent = t; }
+async function save(fromHistory){
+  if(S.errors.length){ alert("md 內有解析錯誤,先修檔再編輯"); return false; }
+  S.busy = true; setState("儲存中…");
+  const r = await fetch("/api/save", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({file:S.file, expect_token:S.token, forest:cleanForest(S.forest)})});
+  const j = await r.json();
+  S.busy = false;
+  if(r.status===409){
+    alert("檔案剛被其他編輯者(agent/另一視窗)改過,已重載最新版;這次改動請重做。");
+    S.token=j.doc.token; S.forest=j.doc.forest; S.errors=j.doc.errors||[];
+    S.lastSaved = cleanForest(S.forest); S.undo = []; S.redo = [];  // 基準已換人,舊快照作廢
+    closePanel(); render(); setState("已重載"); return false;
+  }
+  if(!r.ok){ alert("儲存失敗: "+(j.error||r.status)); setState("儲存失敗"); return false; }
+  if(!fromHistory){  // 一般編輯:上一個已存狀態進復原堆疊;undo/redo 本身不進
+    S.undo.push(S.lastSaved);
+    if(S.undo.length > UNDO_MAX) S.undo.shift();
+    S.redo = [];
+  }
+  S.token=j.token; S.forest=j.forest; S.errors=j.errors||[];
+  S.lastSaved = cleanForest(S.forest);
+  render(); setState("已儲存 "+new Date().toLocaleTimeString()); return true;
+}
+async function undoStep(){
+  if(!S.undo.length || S.busy || S.errors.length) return;
+  const prev = S.undo.pop();
+  S.redo.push(S.lastSaved);
+  S.forest = prev;
+  if(S.panelOpen) closePanel();  // 回復後節點可能已不存在,面板一律收起
+  await save(true);
+  setState("已回復(可再回 "+S.undo.length+" 步)");
+}
+async function redoStep(){
+  if(!S.redo.length || S.busy || S.errors.length) return;
+  const next = S.redo.pop();
+  S.undo.push(S.lastSaved);
+  S.forest = next;
+  if(S.panelOpen) closePanel();
+  await save(true);
+  setState("已重做");
+}
+
+/* ---------- mutations ---------- */
+function addNode(parentId, type){
+  if(S.errors.length){ alert("md 內有解析錯誤,先修檔再編輯"); return; }
+  const nd = {id:nextId(TYPE_META[type].prefix), type, status:"待動",
+              text:"(新節點,點我編輯)", note:"", children:[]};
+  (parentId ? findNode(parentId).children : S.forest).push(nd);
+  // 新增流程開的面板=快速填寫模式:聚焦全選、儲存後自動關
+  save().then(ok=>{ if(ok){ selectNode(nd.id, {quick:true}); } });
+}
+function reparent(id, targetId){
+  const nd = findNode(id), target = findNode(targetId);
+  if(!nd || !target || id===targetId) return;
+  if(subtreeIds(nd).has(targetId)){ alert("不能把節點掛到自己的子孫底下"); return; }
+  const sibs = siblingsOf(id);
+  if(sibs === target.children) return;
+  sibs.splice(sibs.indexOf(nd), 1);
+  target.children.push(nd);
+  save();
+}
+function insertRelative(id, targetId, where){  // 拖到目標上/下緣=插到它前/後(同級排序或跨層搬位)
+  const nd = findNode(id), target = findNode(targetId);
+  if(!nd || !target || id===targetId) return;
+  if(subtreeIds(nd).has(targetId)) return;
+  const from = siblingsOf(id);
+  from.splice(from.indexOf(nd), 1);
+  const list = siblingsOf(targetId);   // 移除後再定位,同列表重排 index 才正確
+  let i = list.indexOf(target);
+  if(where === "after") i++;
+  list.splice(i, 0, nd);
+  save();
+}
+function makeRoot(id){
+  const nd = findNode(id); const sibs = siblingsOf(id);
+  if(sibs === S.forest) return;
+  sibs.splice(sibs.indexOf(nd),1); S.forest.push(nd); save();
+}
+function moveSibling(id, delta){
+  const sibs = siblingsOf(id); const i = sibs.indexOf(findNode(id));
+  const j = i + delta;
+  if(j<0 || j>=sibs.length) return;
+  [sibs[i], sibs[j]] = [sibs[j], sibs[i]]; save();
+}
+function deleteNode(id){
+  const nd = findNode(id);
+  const kids = nd.children||[];
+  if(!confirm(kids.length ? `刪除 ${id}?其 ${kids.length} 個子節點會接到上一層,不會一起刪。`
+                          : `刪除 ${id}?`)) return;
+  const sibs = siblingsOf(id); const i = sibs.indexOf(nd);
+  sibs.splice(i, 1, ...kids);
+  closePanel(); save();
+}
+function cycleStatus(id){
+  const nd = findNode(id);
+  nd.status = STATUSES[(STATUSES.indexOf(nd.status)+1) % STATUSES.length];
+  save();
+}
+
+/* ---------- panel ---------- */
+function selectNode(id, opts){
+  S.selId = id; S.panelOpen = true;
+  S.quickAdd = !!(opts && opts.quick);
+  const nd = findNode(id);
+  document.getElementById("pId").textContent = nd.id+" · "+nd.type;
+  document.getElementById("pType").value = nd.type;
+  document.getElementById("pStatus").value = nd.status;
+  document.getElementById("pText").value = nd.text.replace(/<br\s*\/?>/gi, "\n");
+  document.getElementById("pNote").value = nd.note||"";
+  document.getElementById("pNoteLabel").textContent =
+    nd.note_key && nd.note_key !== (TYPE_META[nd.type]||{}).key ? nd.note_key + "(沿用原檔欄名)" :
+    nd.type==="效果" ? "判準(看到什麼就算達成)" :
+    nd.type==="Context" ? "來源(這段背景從哪來)" : "產出落點";
+  const imgRow = document.getElementById("pImgRow");
+  const imgs = imgList(nd);
+  if(imgs.length){
+    imgRow.style.display = "block";
+    document.getElementById("pImgs").innerHTML = imgs.map((n,i)=>
+      `<div class="pimg"><img src="${assetUrl(n)}" data-lb="${esc(n)}">
+       <span class="pimg-del" data-di="${i}" title="移除這張">✕</span></div>`).join("");
+  } else imgRow.style.display = "none";
+  document.getElementById("panel").style.display = "block";
+  autoGrowText();
+  render();
+  if(S.quickAdd){ const t = document.getElementById("pText"); t.focus(); t.select(); }
+}
+function autoGrowText(){  // 內容欄隨文字自動長高,字多不用捲
+  const t = document.getElementById("pText");
+  t.style.height = "auto";
+  t.style.height = Math.min(t.scrollHeight + 2, window.innerHeight * .45) + "px";
+}
+function closePanel(){ S.panelOpen=false; S.selId=null; S.quickAdd=false;
+  document.getElementById("panel").style.display="none"; render(); }
+function panelSave(){
+  const nd = findNode(S.selId); if(!nd) return;
+  const newType = document.getElementById("pType").value;
+  if(newType !== nd.type){ // 型別換=ID 換前綴重發(前綴必須與型別一致)
+    nd.type = newType; nd.id = nextId(TYPE_META[newType].prefix); nd.note_key = "";
+  }
+  nd.status = document.getElementById("pStatus").value;
+  // 換行以 <br> 存進 md(md 格式一行一節點,不能有真換行)
+  nd.text = document.getElementById("pText").value.trim().replace(/\n/g, "<br>") || "(未命名)";
+  nd.note = document.getElementById("pNote").value.trim();
+  const keep = nd.id;
+  const wasQuick = S.quickAdd;
+  save().then(ok=>{ if(!ok) return;
+    if(wasQuick) closePanel();      // 新增流程:存完自動收,少一次點擊
+    else selectNode(keep);          // 查看流程:面板留著
+  });
+}
+
+/* ---------- 拖放落點即時提示(SVG 層+游標標籤) ---------- */
+function drawDropFx(cx, cy){
+  const fx = document.getElementById("dropfx");
+  const badge = document.getElementById("dropBadge");
+  badge.style.left = (cx+14)+"px"; badge.style.top = (cy+42)+"px"; badge.style.display = "block";
+  const t = S.drag && S.drag.target;
+  if(!t){ if(fx) fx.innerHTML = "";
+    badge.className = "cancel"; badge.textContent = "放開=取消(拖到某節點上才有落點)"; return; }
+  const nd = findNode(t.id);
+  if(!nd || !fx) return;
+  const short = nd.text.replace(/<br\s*\/?>/gi," ").slice(0, 12) + (nd.text.length > 12 ? "…" : "");
+  badge.className = "";
+  const ndW = nd._w || NODE_W;
+  if(t.where === "into"){
+    fx.innerHTML = `<rect x="${nd._x-4}" y="${nd._y-4}" width="${ndW+8}" height="${nd._h+8}"
+      rx="14" fill="rgba(22,163,74,.08)" stroke="#16a34a" stroke-width="2.2"
+      stroke-dasharray="7 5" pointer-events="none"/>`;
+    badge.textContent = `↳ 成為「${t.id} ${short}」的子節點`;
+  } else {
+    const y = t.where === "before" ? nd._y - 8 : nd._y + nd._h + 8;
+    fx.innerHTML = `<line x1="${nd._x}" y1="${y}" x2="${nd._x+ndW}" y2="${y}"
+        stroke="#16a34a" stroke-width="4" stroke-linecap="round" pointer-events="none"/>
+      <circle cx="${nd._x}" cy="${y}" r="5" fill="#16a34a" pointer-events="none"/>
+      <circle cx="${nd._x+ndW}" cy="${y}" r="5" fill="#16a34a" pointer-events="none"/>`;
+    badge.textContent = (t.where === "before" ? "⬆ 排到「" : "⬇ 排到「") + t.id + " " + short +
+                        (t.where === "before" ? "」前面" : "」後面");
+  }
+}
+function clearDropFx(){
+  const fx = document.getElementById("dropfx");
+  if(fx) fx.innerHTML = "";
+  document.getElementById("dropBadge").style.display = "none";
+}
+/* 拖近邊界=畫布自動平移(目標不在畫面內也拖得到);迴圈自終止於 S.drag 清空 */
+let edgePanRaf = null;
+function retargetDrop(){
+  if(!S.drag || !S.drag.lastXY) return;
+  const {x, y} = S.drag.lastXY;
+  const el = document.elementsFromPoint(x, y)
+               .find(e=>e.classList && e.classList.contains("node") &&
+                        !S.drag.exclude.has(e.dataset.id));
+  if(el){
+    const r = el.getBoundingClientRect(), f = (y - r.top) / r.height;
+    S.drag.target = {id: el.dataset.id, where: f < .30 ? "before" : f > .70 ? "after" : "into"};
+  } else S.drag.target = null;
+  drawDropFx(x, y);
+}
+function edgePanLoop(){
+  edgePanRaf = null;
+  if(!S.drag || !S.drag.lastXY) return;   // 拖曳結束→迴圈自然停
+  const r = document.getElementById("wrap").getBoundingClientRect();
+  const {x, y} = S.drag.lastXY, M = 56, V = 16;
+  let dx = 0, dy = 0;
+  if(x < r.left + M) dx = V * (1 - (x - r.left) / M);
+  else if(x > r.right - M) dx = -V * (1 - (r.right - x) / M);
+  if(y < r.top + M) dy = V * (1 - (y - r.top) / M);
+  else if(y > r.bottom - M) dy = -V * (1 - (r.bottom - y) / M);
+  if(dx || dy){ S.view.x += dx; S.view.y += dy; applyView(); retargetDrop(); }
+  edgePanRaf = requestAnimationFrame(edgePanLoop);
+}
+
+/* ---------- 剪貼簿貼上:文字/截圖→新獨立節點;面板開著貼圖→貼進該節點 ---------- */
+async function uploadImage(blob){
+  const b64 = await new Promise(res=>{ const r = new FileReader();
+    r.onload = ()=>res(String(r.result).split(",")[1]); r.readAsDataURL(blob); });
+  const ext = (blob.type.split("/")[1] || "png").replace("jpeg", "jpg");
+  const r = await fetch("/api/upload", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({file:S.file, data:b64, ext})});
+  const j = await r.json();
+  if(!r.ok){ alert("圖片上傳失敗: "+(j.error||r.status)); return null; }
+  return j.name;
+}
+function focusNode(id){  // 節點在畫面外就把視野平移過去(貼上落在大樹底部時,否則像沒反應)
+  const nd = findNode(id);
+  if(!nd || nd._x === undefined) return;
+  const w = document.getElementById("wrap").clientWidth,
+        h = document.getElementById("wrap").clientHeight;
+  const ndW = nd._w || NODE_W;
+  const sx = nd._x*S.view.k + S.view.x, sy = nd._y*S.view.k + S.view.y;
+  if(sx < 0 || sy < 40 || sx > w-(ndW+40) || sy > h-140){
+    S.view.x = w/2 - (nd._x + ndW/2)*S.view.k;
+    S.view.y = h/2 - (nd._y + nd._h/2)*S.view.k;
+    applyView();
+  }
+}
+function pasteNewNode(text, img){
+  const nd = {id:nextId("X"), type:"執行", status:"待動", text, note:"", img:img||"", children:[]};
+  S.forest.push(nd);   // 先落地為獨立根節點,由使用者拖去掛
+  save().then(ok=>{ if(ok){ S.selId = nd.id; render(); focusNode(nd.id); } });
+}
+function initPaste(){
+  document.addEventListener("paste", async ev=>{
+    if(S.errors.length || !S.file) return;
+    if(performance.now() - (window.__clipPasteTs||0) < 400) return;  // 這次 Ctrl+V=貼節點,不再貼 OS 剪貼簿
+    const items = ev.clipboardData && ev.clipboardData.items;
+    let imgItem = null;
+    if(items) for(const it of items) if(it.type && it.type.startsWith("image/")) imgItem = it;
+    const inField = /^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName || "");
+    if(imgItem){
+      ev.preventDefault();
+      const name = await uploadImage(imgItem.getAsFile());
+      if(!name) return;
+      if(S.panelOpen && S.selId){          // 面板開著=截圖「追加」到當前節點(多圖)
+        const nd = findNode(S.selId); setImgs(nd, imgList(nd).concat(name));
+        const keep = S.selId, wasQuick = S.quickAdd;
+        save().then(ok=>{ if(ok) selectNode(keep, wasQuick?{quick:true}:undefined); });
+      } else pasteNewNode("(貼上的截圖,點我編輯)", name);
+      return;
+    }
+    if(inField) return;                    // 欄位內的文字貼上走瀏覽器原生
+    const text = (ev.clipboardData.getData("text/plain") || "").trim();
+    if(!text) return;
+    ev.preventDefault();
+    pasteNewNode(text.replace(/\r?\n/g, "<br>"), "");
+  });
+}
+
+/* ---------- pointer interactions ---------- */
+function initEvents(){
+  const wrap = document.getElementById("wrap");
+  const ghost = document.getElementById("ghost");
+  let down = null; // {mode:'node'|'pan', id, x0, y0, vx0, vy0, moved}
+
+  wrap.addEventListener("pointerdown", ev=>{
+    // 面板在 wrap 裡;setPointerCapture 會劫走後續 click,面板互動一律放行
+    if(ev.target.closest("#panel,#mselBar")) return;
+    const gp = ev.target.closest(".grip");
+    if(gp){ down = {mode:"resize", id:gp.dataset.grip, x0:ev.clientX, w0:nodeW(findNode(gp.dataset.grip))};
+            wrap.setPointerCapture(ev.pointerId); return; }
+    if(ev.target.closest("a")) return;  // 卡片內超連結走原生點擊(開新分頁),不觸發選取/拖曳
+    const ab = ev.target.closest(".addbtn");
+    if(ab){ down = {mode:"add", type:ab.dataset.add, parent:ab.dataset.parent}; return; }
+    const tg = ev.target.closest(".toggle,.stub");
+    if(tg){ down = {mode:"toggle", id:tg.dataset.toggle}; return; }
+    const fd = ev.target.closest(".fold");
+    if(fd){ down = {mode:"fold", id:fd.dataset.fold}; return; }
+    const pill = ev.target.closest(".pill");
+    if(pill){ down = {mode:"pill", id:pill.dataset.pill}; return; }
+    const nodeEl = ev.target.closest(".node");
+    if(nodeEl) down = {mode:"node", id:nodeEl.dataset.id, x0:ev.clientX, y0:ev.clientY, moved:false};
+    else if(MARQ.mode){ down = {mode:"marquee", x0:ev.clientX, y0:ev.clientY}; }
+    else { down = {mode:"pan", x0:ev.clientX, y0:ev.clientY, vx0:S.view.x, vy0:S.view.y, moved:false};
+           wrap.classList.add("panning"); }
+    wrap.setPointerCapture(ev.pointerId);
+  });
+
+  wrap.addEventListener("pointermove", ev=>{
+    if(!down) return;
+    if(down.mode==="resize"){
+      const w = Math.max(200, Math.min(640, down.w0 + (ev.clientX - down.x0)/S.view.k));
+      S.widths[down.id] = Math.round(w);
+      render(); return;
+    }
+    if(down.mode==="marquee"){
+      const mq = document.getElementById("marquee");
+      const wr = wrap.getBoundingClientRect();
+      mq.style.display = "block";
+      mq.style.left = (Math.min(down.x0, ev.clientX) - wr.left)+"px";
+      mq.style.top = (Math.min(down.y0, ev.clientY) - wr.top)+"px";
+      mq.style.width = Math.abs(ev.clientX - down.x0)+"px";
+      mq.style.height = Math.abs(ev.clientY - down.y0)+"px";
+      return;
+    }
+    if(down.mode==="pan"){
+      if(Math.hypot(ev.clientX-down.x0, ev.clientY-down.y0) > 4) down.moved = true;
+      S.view.x = down.vx0 + (ev.clientX-down.x0);
+      S.view.y = down.vy0 + (ev.clientY-down.y0);
+      applyView(); return;
+    }
+    if(down.mode!=="node") return;
+    if(!down.moved && Math.hypot(ev.clientX-down.x0, ev.clientY-down.y0) > 5){
+      down.moved = true;
+      const nd = findNode(down.id);
+      const roots = (S.msel.has(down.id) && mselRoots().length > 1) ? mselRoots() : null;
+      if(roots){   // 從選取集合內起拖=整組拖曳
+        S.drag = {id:down.id, group:true, rootIds:roots.map(r=>r.id),
+                  exclude:new Set(roots.flatMap(r=>[...subtreeIds(r)]))};
+        ghost.innerHTML = `<div class="gnode"><b>${roots.length} 張卡</b>整組(放開=移動,按住Ctrl=複製)</div>`;
+        for(const r of roots) document.querySelectorAll(`.node[data-id="${r.id}"]`).forEach(e=>e.classList.add("dragsrc"));
+      } else {
+        S.drag = {id:down.id, exclude:subtreeIds(nd)};
+        const plain = String(nd.text).replace(/<br\s*\/?>/gi, " ");
+        ghost.innerHTML = `<div class="gnode ${(TYPE_META[nd.type]||{}).cls||""}"><b>${nd.id}</b>${esc(plain.slice(0,36))}${plain.length>36?"…":""}</div>`;
+        document.querySelectorAll(`.node[data-id="${down.id}"]`).forEach(e=>e.classList.add("dragsrc"));
+      }
+      ghost.style.display = "block";
+      document.body.classList.add("dragging");
+      if(!edgePanRaf) edgePanRaf = requestAnimationFrame(edgePanLoop);
+    }
+    if(down.moved){
+      ghost.style.left = (ev.clientX+12)+"px"; ghost.style.top = (ev.clientY+8)+"px";
+      S.drag.lastXY = {x: ev.clientX, y: ev.clientY};
+      const el = document.elementsFromPoint(ev.clientX, ev.clientY)
+                   .find(e=>e.classList && e.classList.contains("node") &&
+                            !S.drag.exclude.has(e.dataset.id));
+      if(el){
+        // 三區判定:上緣 30%=插到它前面、下緣 30%=插到它後面(同級排序),中間=改掛成子節點
+        const r = el.getBoundingClientRect(), f = (ev.clientY - r.top) / r.height;
+        const where = f < .30 ? "before" : f > .70 ? "after" : "into";
+        S.drag.target = {id: el.dataset.id, where};
+      } else S.drag.target = null;
+      drawDropFx(ev.clientX, ev.clientY);
+    }
+  });
+
+  wrap.addEventListener("pointerup", ev=>{
+    if(!down) return;
+    wrap.classList.remove("panning");
+    if(down.mode==="resize"){
+      localStorage.setItem("efftree.widths."+S.file, JSON.stringify(S.widths));
+      down=null; return;
+    }
+    if(down.mode==="add"){ addNode(down.parent, down.type); down=null; return; }
+    if(down.mode==="toggle"){ toggleCollapse(down.id); down=null; return; }
+    if(down.mode==="fold"){ toggleFold(down.id); down=null; return; }
+    if(down.mode==="pill"){ cycleStatus(down.id); down=null; return; }
+    if(down.mode==="marquee"){
+      const mq = document.getElementById("marquee");
+      const r = mq.getBoundingClientRect();
+      mq.style.display = "none";
+      MARQ.mode = false; wrap.classList.remove("marq");
+      const sel = new Set();
+      document.querySelectorAll("#viewport .node").forEach(e=>{
+        const b = e.getBoundingClientRect();
+        if(b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top) sel.add(e.dataset.id);
+      });
+      S.msel = sel; render();
+      setState(sel.size ? `已選取 ${sel.size} 張卡:Ctrl+C複製、Ctrl+X剪下、Delete刪除、拖=整組移動、Ctrl+拖=複製到落點` : "已同步");
+      down = null; return;
+    }
+    if(down.mode==="pan"){ if(!down.moved) clearMsel(); down = null; return; }
+    if(down.mode==="node"){
+      if(down.moved){
+        const t = S.drag && S.drag.target;
+        const grouped = S.drag && S.drag.group;
+        const rootIds = grouped ? S.drag.rootIds : [down.id];
+        ghost.style.display="none";
+        document.body.classList.remove("dragging");
+        clearDropFx();
+        document.querySelectorAll(".dragsrc").forEach(e=>e.classList.remove("dragsrc"));
+        if(t){
+          const copy = ev.ctrlKey;                       // 按住 Ctrl 放開=複製到落點
+          const roots = rootIds.map(findNode).filter(Boolean);
+          const target = findNode(t.id);
+          let items = null;
+          if(roots.length && target){
+            if(copy) items = cloneForest(roots);
+            else removeNodes(roots), items = roots;
+            if(t.where === "into") target.children.push(...items);
+            else { const list = siblingsOf(t.id); let i = list.indexOf(target);
+                   if(t.where === "after") i++; list.splice(i, 0, ...items); }
+            if(grouped) S.msel = new Set(items.map(x=>x.id));
+            save();
+          } else render();
+        }
+        else render();
+        S.drag = null;
+      } else { clearMsel(); selectNode(down.id); }
+    }
+    down = null;
+  });
+
+  // 雙擊空白處=進入框選模式(拖曳框出選取範圍;Esc 或放開即離開)
+  wrap.addEventListener("dblclick", ev=>{
+    if(ev.target.closest(".node,#panel,.addbtn,.stub,.toggle,.fold,a")) return;
+    MARQ.mode = true;
+    wrap.classList.add("marq");
+    setState("框選模式:按住拖曳框出要選的卡片(Esc 取消)");
+  });
+
+  // 畫布內禁掉一切原生拖曳(圖片/文字選取拖曳),否則 pointer 事件被劫走、自訂拖曳凍結
+  wrap.addEventListener("dragstart", ev=>ev.preventDefault());
+
+  // 拖曳自救:原生行為/視窗失焦/Esc 把 pointerup 吃掉時,不留下凍結的 ghost 與落點提示
+  const abortDrag = ()=>{
+    if(!S.drag && !down) return;
+    ghost.style.display = "none";
+    document.body.classList.remove("dragging");
+    document.querySelectorAll(".dragsrc").forEach(e=>e.classList.remove("dragsrc"));
+    clearDropFx();
+    S.drag = null; down = null;
+    render();
+  };
+  wrap.addEventListener("pointercancel", abortDrag);
+  window.addEventListener("blur", abortDrag);
+
+  wrap.addEventListener("wheel", ev=>{
+    // 滾輪分層:滑鼠在資訊面板上=原生捲動(文字欄自己的捲軸→面板捲軸),只有在背景上才縮放
+    if(ev.target.closest && ev.target.closest("#panel")) return;
+    ev.preventDefault();
+    const k2 = Math.min(2, Math.max(.25, S.view.k * Math.exp(-ev.deltaY*.0012)));
+    const r = wrap.getBoundingClientRect(), mx = ev.clientX-r.left, my = ev.clientY-r.top;
+    S.view.x = mx - (mx-S.view.x)*(k2/S.view.k);
+    S.view.y = my - (my-S.view.y)*(k2/S.view.k);
+    S.view.k = k2; applyView();
+  }, {passive:false});
+
+  // 面板:標題列拖曳移動+右下角原生縮放,位置大小記進 localStorage
+  const panel = document.getElementById("panel");
+  const saveGeom = ()=>{
+    // 面板隱藏=stylesheet 的 display:none,查行內 style 擋不住(實踩:RO 在版本重載瞬間存進零尺寸垃圾幾何)
+    if(!panel.offsetWidth) return;
+    const r = panel.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
+    localStorage.setItem("efftree.panelGeom", JSON.stringify(
+      {l: r.left - wr.left, t: r.top - wr.top, w: r.width, h: r.height}));
+  };
+  try{
+    const g = JSON.parse(localStorage.getItem("efftree.panelGeom") || "null");
+    if(g && g.w > 50){  // 拒收零尺寸垃圾幾何
+      panel.style.left = Math.max(0, Math.min(g.l, window.innerWidth - 120)) + "px";
+      panel.style.top = Math.max(0, Math.min(g.t, window.innerHeight - 120)) + "px";
+      panel.style.right = "auto";
+      if(g.w) panel.style.width = g.w + "px";
+      if(g.h) panel.style.height = g.h + "px";
+    }
+  }catch(e){}
+  new ResizeObserver(saveGeom).observe(panel);
+  panel.querySelector("h2").addEventListener("pointerdown", ev=>{
+    if(ev.target.closest(".close")) return;
+    const r = panel.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
+    const off = {x: ev.clientX - r.left, y: ev.clientY - r.top};
+    const move = e=>{
+      panel.style.left = Math.max(0, e.clientX - wr.left - off.x) + "px";
+      panel.style.top = Math.max(0, e.clientY - wr.top - off.y) + "px";
+      panel.style.right = "auto";
+    };
+    const up = ()=>{ document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up); saveGeom(); };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+    ev.preventDefault();
+  });
+  document.getElementById("pText").addEventListener("input", autoGrowText);
+
+  document.addEventListener("keydown", ev=>{
+    const lb = document.getElementById("lightbox");
+    if(ev.key==="Escape" && lb.classList.contains("open")){ lb.classList.remove("open"); return; }
+    if(ev.key==="Escape" && (S.drag || down)){ abortDrag(); return; }  // Esc=取消拖曳
+    const t = ev.target;
+    if(t && (t.tagName==="INPUT" || t.tagName==="TEXTAREA" || t.tagName==="SELECT")){
+      if(ev.key==="Escape") closePanel();
+      return;  // 面板打字中的 Ctrl+Z 走瀏覽器原生文字復原,不動樹
+    }
+    const k = ev.key.toLowerCase();
+    if((ev.ctrlKey||ev.metaKey) && k==="z" && !ev.shiftKey){ ev.preventDefault(); undoStep(); }
+    else if((ev.ctrlKey||ev.metaKey) && (k==="y" || (k==="z" && ev.shiftKey))){ ev.preventDefault(); redoStep(); }
+    else if((ev.ctrlKey||ev.metaKey) && k==="c" && S.msel.size){ ev.preventDefault(); copyMsel(false); }
+    else if((ev.ctrlKey||ev.metaKey) && k==="x" && S.msel.size){ ev.preventDefault(); copyMsel(true); }
+    else if((ev.ctrlKey||ev.metaKey) && k==="v" && CLIP){
+      ev.preventDefault(); window.__clipPasteTs = performance.now(); pasteClip(); }
+    else if(ev.key==="Delete" && S.msel.size){ ev.preventDefault(); deleteMsel(); }
+    else if(ev.key==="Escape" && MARQ.mode){
+      MARQ.mode = false;
+      document.getElementById("wrap").classList.remove("marq");
+      document.getElementById("marquee").style.display = "none";
+      setState("已同步"); }
+    else if(ev.key==="Escape" && S.msel.size){ clearMsel(); }
+    else if(ev.key==="Escape" && S.panelOpen) closePanel();
+    else if(ev.key==="Escape" && CLIP){ CLIP = null; setState("節點剪貼簿已清空"); }
+  });
+}
+
+/* ---------- polling ---------- */
+async function poll(){
+  if(S.busy || S.panelOpen || S.drag || !S.file) return;
+  try{
+    const r = await fetch("/api/mtime?f="+encodeURIComponent(S.file));
+    if(!r.ok) return;
+    const j = await r.json();
+    if(j.version !== S.version){ location.reload(); return; } // server 改版→整頁重載
+    if(j.token !== S.token) await loadDoc(S.file);            // agent 改了 md→自動刷新
+  }catch(e){ /* server 暫時不在,下一輪再試 */ }
+}
+
+/* ---------- boot ---------- */
+window.addEventListener("DOMContentLoaded", async ()=>{
+  initEvents();
+  initPaste();
+  // 看大圖用站內燈箱,不跳頁(window.open 會被導去佔用分頁,關不掉,實踩)
+  // 縮放/平移狀態;點圖不關,點灰色背景或 ✕ 或 Esc 才關
+  const lb = document.getElementById("lightbox"), lbImg = document.getElementById("lightboxImg");
+  const LB = {k:1, x:0, y:0, drag:null};
+  const lbApply = ()=>{ lbImg.style.transform = `translate(${LB.x}px,${LB.y}px) scale(${LB.k})`; };
+  const closeLightbox = ()=>lb.classList.remove("open");
+  window.closeLightbox = closeLightbox;
+  document.getElementById("pImgs").addEventListener("click", ev=>{
+    const del = ev.target.closest(".pimg-del");
+    if(del){  // 逐張移除
+      const nd = findNode(S.selId); if(!nd) return;
+      const arr = imgList(nd); arr.splice(+del.dataset.di, 1); setImgs(nd, arr);
+      const keep = S.selId;
+      save().then(ok=>{ if(ok) selectNode(keep); });
+      return;
+    }
+    const im = ev.target.closest("img[data-lb]");
+    if(im){
+      LB.k = 1; LB.x = 0; LB.y = 0; LB.drag = null; lbApply();
+      lbImg.src = assetUrl(im.dataset.lb);
+      lb.classList.add("open");
+    }
+  });
+  lb.addEventListener("click", ev=>{
+    if(ev.target === lb || ev.target.classList.contains("lbhint")) closeLightbox();
+  });
+  lb.querySelector(".lbclose").addEventListener("click", closeLightbox);
+  lb.addEventListener("wheel", ev=>{
+    ev.preventDefault();
+    const k2 = Math.min(8, Math.max(.3, LB.k * Math.exp(-ev.deltaY * .0015)));
+    const cx = ev.clientX - window.innerWidth/2, cy = ev.clientY - window.innerHeight/2;
+    LB.x = cx - (cx - LB.x) * (k2/LB.k);
+    LB.y = cy - (cy - LB.y) * (k2/LB.k);
+    LB.k = k2; lbApply();
+  }, {passive:false});
+  lbImg.addEventListener("pointerdown", ev=>{
+    ev.preventDefault();
+    LB.drag = {x0:ev.clientX, y0:ev.clientY, bx:LB.x, by:LB.y};
+    lbImg.setPointerCapture(ev.pointerId);
+  });
+  lbImg.addEventListener("pointermove", ev=>{
+    if(!LB.drag) return;
+    LB.x = LB.drag.bx + ev.clientX - LB.drag.x0;
+    LB.y = LB.drag.by + ev.clientY - LB.drag.y0;
+    lbApply();
+  });
+  lbImg.addEventListener("pointerup", ()=>{ LB.drag = null; });
+  document.getElementById("projSel").addEventListener("change", async ev=>{
+    closePanel();
+    let v = ev.target.value;
+    if(v.startsWith("new:")){                    // 照 TEMPLATE 建檔;__custom__=輸入名稱開全新專案
+      let name = v.slice(4);
+      if(name === "__custom__"){
+        name = (prompt("新專案名稱(會建立 1_Projects/<名稱>/ 資料夾與效果樹):") || "").trim();
+        if(!name){ await loadProjects(); loadDoc(S.file); return; }
+      }
+      const path = await createTree(name);
+      if(!path){ await loadProjects(); return; }
+      await loadProjects();
+      ev.target.value = path; v = path;
+    }
+    loadDoc(v).then(fitView);
+  });
+  document.getElementById("btnRoot").addEventListener("click", ()=>addNode(null,"效果"));
+  document.getElementById("btnFit").addEventListener("click", fitView);
+  document.getElementById("btnUndo").addEventListener("click", undoStep);
+  document.getElementById("btnRedo").addEventListener("click", redoStep);
+  document.getElementById("pSave").addEventListener("click", panelSave);
+  document.getElementById("pAddFx").addEventListener("click", ()=>addNode(S.selId,"效果"));
+  document.getElementById("pAddEx").addEventListener("click", ()=>addNode(S.selId,"執行"));
+  document.getElementById("pAddCx").addEventListener("click", ()=>addNode(S.selId,"Context"));
+  document.getElementById("pUp").addEventListener("click", ()=>moveSibling(S.selId,-1));
+  document.getElementById("pDown").addEventListener("click", ()=>moveSibling(S.selId,1));
+  document.getElementById("pRoot").addEventListener("click", ()=>makeRoot(S.selId));
+  document.getElementById("pDel").addEventListener("click", ()=>deleteNode(S.selId));
+  document.getElementById("pClose").addEventListener("click", closePanel);
+  // 內容欄:Enter=儲存、Shift+Enter=換行(方便排版)
+  document.getElementById("mselType").addEventListener("change", ev=>batchType(ev.target.value));
+  document.getElementById("mselStatus").addEventListener("change", ev=>batchStatus(ev.target.value));
+  document.getElementById("mselClear").addEventListener("click", clearMsel);
+  document.getElementById("mselType").addEventListener("change", ev=>batchType(ev.target.value));
+  document.getElementById("mselStatus").addEventListener("change", ev=>batchStatus(ev.target.value));
+  document.getElementById("mselClear").addEventListener("click", clearMsel);
+  document.getElementById("pText").addEventListener("keydown", ev=>{
+    if(ev.key==="Enter" && !ev.shiftKey){ ev.preventDefault(); panelSave(); }
+  });
+  const first = await loadProjects();
+  if(first){ await loadDoc(first); fitView(); }
+  setInterval(poll, 2500);
+});
+</script>
+</head>
+<body>
+<header>
+  <h1>🌳 效果樹</h1>
+  <select id="projSel"></select>
+  <button id="btnRoot">＋根效果</button>
+  <button id="btnFit">縮放適配</button>
+  <button id="btnUndo" title="Ctrl+Z">↶ 回復</button>
+  <button id="btnRedo" title="Ctrl+Y / Ctrl+Shift+Z">↷ 重做</button>
+  <span id="legend"><span><span class="dotFx"></span>效果(狀態)</span>
+    <span><span class="dotEx"></span>執行(動作)</span>
+    <span><span class="dotCx"></span>Context(背景)</span></span>
+  <span id="saveState">載入中…</span>
+</header>
+<div id="errBanner"></div>
+<div id="wrap">
+  <svg id="svg">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <g id="viewport"></g>
+  </svg>
+  <div id="mselBar">
+    <b id="mselCount"></b>
+    <select id="mselType"><option value="">型別:維持</option><option>效果</option><option>執行</option><option>Context</option></select>
+    <select id="mselStatus"><option value="">狀態:維持</option><option>待動</option><option>進行中</option><option>待驗收</option><option>完成</option><option>擱置</option></select>
+    <span class="mclear" id="mselClear" title="清除選取">✕</span>
+  </div>
+  <div id="marquee"></div>
+  <div id="panel">
+    <h2><span id="pId"></span><button class="close" id="pClose">✕</button></h2>
+    <label>內容(要讓什麼怎麼樣 / 要做什麼;Enter=儲存、Shift+Enter=換行)</label>
+    <textarea id="pText"></textarea>
+    <div class="prow">
+      <div><label>型別</label>
+        <select id="pType"><option>效果</option><option>執行</option><option>Context</option></select></div>
+      <div><label>狀態</label>
+        <select id="pStatus"><option>待動</option><option>進行中</option><option>待驗收</option><option>完成</option><option>擱置</option></select></div>
+    </div>
+    <label id="pNoteLabel">判準</label>
+    <input id="pNote" placeholder="寫不出先留空,不硬湊">
+    <div id="pImgRow" style="display:none">
+      <label>截圖(可多張;點圖放大;面板開著時 Ctrl+V 追加)</label>
+      <div id="pImgs"></div>
+    </div>
+    <div class="btns">
+      <button class="primary" id="pSave">儲存</button>
+      <button id="pAddFx">＋子效果</button>
+      <button id="pAddEx">＋子執行</button>
+      <button id="pAddCx">＋子Context</button>
+      <button id="pUp">↑</button>
+      <button id="pDown">↓</button>
+      <button id="pRoot">移為根</button>
+      <button class="danger" id="pDel">刪除</button>
+    </div>
+  </div>
+</div>
+<div id="ghost"></div>
+<div id="dropBadge"></div>
+<div id="lightbox"><img id="lightboxImg"><span class="lbclose" title="關閉">✕</span>
+  <span class="lbhint">滾輪縮放・拖曳平移・點灰色背景或按 Esc 關閉</span></div>
+<div id="hint">雙擊空白=框選多卡(Ctrl+C/X/V 複製剪下貼上、Delete 刪、拖=整組移、Ctrl+拖=複製到落點)・Ctrl+V 貼文字/截圖=新獨立節點(再拖去掛;面板開著貼圖=貼進該節點)・hover 卡片右側=＋效/＋執快速加子節點・拖到節點中間=改掛、上/下緣=排序・−/＋=折疊・點節點=編輯(Enter 存、Shift+Enter 換行)・點膠囊=切狀態・Ctrl+Z/Y 回復重做・▶下一步=自動前沿・空白拖曳=平移・滾輪=縮放・真相源=_效果樹.md</div>
+<div id="measure" class="node" style="width:240px"></div>
+</body>
+</html>
